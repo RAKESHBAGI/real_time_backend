@@ -1,45 +1,59 @@
 const express = require('express');
-const http = require('http');
+const dotenv = require('dotenv');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/auth');
+const documentRoutes = require('./routes/documents');
+const cors = require('cors');
 const { Server } = require('socket.io');
-require('dotenv').config(); // Load environment variables
+const http = require('http');
 
-const app = express(); // Initialize Express
-const server = http.createServer(app); // Create HTTP server
+dotenv.config();
+connectDB();
 
-// Middleware to parse JSON
-app.use(express.json());
+const app = express();
+const server = http.createServer(app);
 
-// Temporarily disable MongoDB connection (comment out these lines)
-// const connectDB = require('./config/db');
-// connectDB();
+// Configure CORS for HTTP requests
+app.use(cors({
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
+    allowedHeaders: ['Content-Type', 'Authorization'] // Allowed headers
+}));
 
-// Initialize Socket.IO
+// Socket.io setup for real-time collaboration
 const io = new Server(server, {
     cors: {
-        origin: '*',
-        methods: ['GET', 'POST'],
-    },
+        origin: 'http://localhost:3000', 
+        methods: ['GET', 'POST']
+    }
 });
 
-// Handle WebSocket connections
+// Middleware and routes
+app.use(express.json());
+app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentRoutes);
+
+//connection happens when a io called made from socket.io client
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+    console.log('New WebSocket connection');
 
-    // Listen for real-time collaboration events
-    socket.on('update-document', (data) => {
-        socket.broadcast.emit('receive-changes', data); // Broadcast changes to other clients
+    //user on documentdetails - useuseffect
+    socket.on('joinDocument', (documentId) => {
+        socket.join(documentId);
+        console.log(`User joined document ${documentId}`);
+    });
+    // user when changes the input feild values
+    socket.on('documentUpdate', ({ documentId, title, content }) => {
+        socket.to(documentId).emit('receiveUpdate', { title, content });
     });
 
-    socket.on('disconnect', () => {
-        console.log('A user disconnected:', socket.id);
+    //this is not used by the frontend
+    socket.on('sendMessage', ({ documentId, message }) => {
+        socket.to(documentId).emit('receiveMessage', message);
     });
 });
 
-// Sample Test Route
-app.get('/api/test', (req, res) => {
-    res.json({ message: 'Backend is working!' });
-});
-
-// Start the server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
